@@ -4,6 +4,7 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { fireEvent } from "../../../../common/dom/fire_event";
 import type { HASSDomCurrentTargetEvent } from "../../../../common/dom/fire_event";
+import "../../../../components/entity/ha-entity-picker";
 import "../../../../components/entity/ha-statistic-picker";
 import "../../../../components/ha-button";
 import "../../../../components/ha-checkbox";
@@ -38,10 +39,31 @@ import {
 } from "../../../../data/recorder";
 import type { HaInput } from "../../../../components/input/ha-input";
 
+type SavingsType = "no_cost" | "stat" | "entity" | "number";
+
 interface SolarFormState {
   source: SolarSourceTypeEnergyPreference;
   forecast: boolean;
+  savingsType: SavingsType;
 }
+
+const savingsTypeFromSource = (
+  source: SolarSourceTypeEnergyPreference
+): SavingsType => {
+  if (source.stat_cost) {
+    return "stat";
+  }
+  if (source.entity_energy_price) {
+    return "entity";
+  }
+  if (
+    source.number_energy_price !== null &&
+    source.number_energy_price !== undefined
+  ) {
+    return "number";
+  }
+  return "no_cost";
+};
 
 const energyUnitClasses = ["energy"];
 const powerUnitClasses = ["power"];
@@ -63,6 +85,8 @@ export class DialogEnergySolarSettings
 
   @state() private _forecast?: boolean;
 
+  @state() private _savingsType: SavingsType = "no_cost";
+
   @state() private _energy_units?: string[];
 
   @state() private _power_units?: string[];
@@ -82,6 +106,7 @@ export class DialogEnergySolarSettings
       ? { ...params.source }
       : emptySolarEnergyPreference();
     this._forecast = this._source.config_entry_solar_forecast !== null;
+    this._savingsType = savingsTypeFromSource(this._source);
     this._energy_units = (
       await getSensorDeviceClassConvertibleUnits(this.hass, "energy")
     ).units;
@@ -98,7 +123,11 @@ export class DialogEnergySolarSettings
     this._open = true;
     this._initDirtyTracking(
       { type: "deep" },
-      { source: this._source!, forecast: this._forecast! }
+      {
+        source: this._source!,
+        forecast: this._forecast!,
+        savingsType: this._savingsType,
+      }
     );
   }
 
@@ -110,6 +139,8 @@ export class DialogEnergySolarSettings
   private _dialogClosed() {
     this._params = undefined;
     this._source = undefined;
+    this._forecast = undefined;
+    this._savingsType = "no_cost";
     this._error = undefined;
     this._excludeList = undefined;
     fireEvent(this, "dialog-closed", { dialog: this.localName });
@@ -119,6 +150,11 @@ export class DialogEnergySolarSettings
     if (!this._params || !this._source) {
       return nothing;
     }
+
+    // External statistics cannot use an entity or a fixed price.
+    const externalSolarSource =
+      !!this._source.stat_energy_from &&
+      isExternalStatistic(this._source.stat_energy_from);
 
     return html`
       <ha-dialog
@@ -254,6 +290,92 @@ export class DialogEnergySolarSettings
             : ""
         }
 
+        <p class="section-label">
+          ${this.hass.localize("ui.panel.config.energy.solar.dialog.savings")}
+        </p>
+        <p class="section-description">
+          ${this.hass.localize(
+            "ui.panel.config.energy.solar.dialog.savings_para"
+          )}
+        </p>
+
+        <ha-radio-group
+          .value=${this._savingsType}
+          name="savingsType"
+          @change=${this._handleSavingsTypeChanged}
+        >
+          <ha-radio-option value="no_cost">
+            ${this.hass.localize(
+              "ui.panel.config.energy.solar.dialog.no_savings_tracking"
+            )}
+          </ha-radio-option>
+          <ha-radio-option value="stat">
+            ${this.hass.localize(
+              "ui.panel.config.energy.solar.dialog.savings_stat"
+            )}
+          </ha-radio-option>
+          <ha-radio-option value="entity" .disabled=${externalSolarSource}>
+            ${this.hass.localize(
+              "ui.panel.config.energy.solar.dialog.savings_entity"
+            )}
+          </ha-radio-option>
+          <ha-radio-option value="number" .disabled=${externalSolarSource}>
+            ${this.hass.localize(
+              "ui.panel.config.energy.solar.dialog.savings_number"
+            )}
+          </ha-radio-option>
+        </ha-radio-group>
+        ${
+          this._savingsType === "stat"
+            ? html`
+                <ha-statistic-picker
+                  .hass=${this.hass}
+                  .value=${this._source.stat_cost}
+                  .label=${this.hass.localize(
+                    "ui.panel.config.energy.solar.dialog.savings_stat_label"
+                  )}
+                  @value-changed=${this._statSavingsChanged}
+                ></ha-statistic-picker>
+              `
+            : nothing
+        }
+        ${
+          this._savingsType === "entity"
+            ? html`
+                <ha-entity-picker
+                  .value=${this._source.entity_energy_price}
+                  .label=${this.hass.localize(
+                    "ui.panel.config.energy.solar.dialog.savings_entity_label"
+                  )}
+                  include-domains='["sensor", "input_number"]'
+                  @value-changed=${this._entitySavingsChanged}
+                ></ha-entity-picker>
+              `
+            : nothing
+        }
+        ${
+          this._savingsType === "number"
+            ? html`
+                <ha-input
+                  .value=${
+                    this._source.number_energy_price !== null &&
+                    this._source.number_energy_price !== undefined
+                      ? String(this._source.number_energy_price)
+                      : ""
+                  }
+                  .label=${this.hass.localize(
+                    "ui.panel.config.energy.solar.dialog.savings_number_label"
+                  )}
+                  type="number"
+                  step="any"
+                  @input=${this._numberSavingsChanged}
+                >
+                  <span slot="end">${this.hass.config.currency}/kWh</span>
+                </ha-input>
+              `
+            : nothing
+        }
+
         <ha-dialog-footer slot="footer">
           <ha-button
             appearance="plain"
@@ -338,6 +460,18 @@ export class DialogEnergySolarSettings
     if (
       ev.detail.value &&
       isExternalStatistic(ev.detail.value) &&
+      (this._savingsType === "entity" || this._savingsType === "number")
+    ) {
+      this._savingsType = "no_cost";
+      this._source = {
+        ...this._source!,
+        entity_energy_price: null,
+        number_energy_price: null,
+      };
+    }
+    if (
+      ev.detail.value &&
+      isExternalStatistic(ev.detail.value) &&
       this._params?.statsMetadata &&
       !(ev.detail.value in this._params.statsMetadata)
     ) {
@@ -368,10 +502,45 @@ export class DialogEnergySolarSettings
     this._updateFormDirtyState();
   }
 
+  private _handleSavingsTypeChanged(
+    ev: HASSDomCurrentTargetEvent<HaRadioGroup>
+  ) {
+    this._savingsType = (ev.currentTarget as HaRadioGroup).value as SavingsType;
+    this._source = {
+      ...this._source!,
+      stat_cost: null,
+      entity_energy_price: null,
+      number_energy_price: null,
+    };
+    this._updateFormDirtyState();
+  }
+
+  private _statSavingsChanged(ev: ValueChangedEvent<string>) {
+    this._source = { ...this._source!, stat_cost: ev.detail.value || null };
+    this._updateFormDirtyState();
+  }
+
+  private _entitySavingsChanged(ev: ValueChangedEvent<string>) {
+    this._source = {
+      ...this._source!,
+      entity_energy_price: ev.detail.value || null,
+    };
+    this._updateFormDirtyState();
+  }
+
+  private _numberSavingsChanged(ev: HASSDomCurrentTargetEvent<HaInput>) {
+    const value = ev.currentTarget.value
+      ? parseFloat(ev.currentTarget.value)
+      : null;
+    this._source = { ...this._source!, number_energy_price: value };
+    this._updateFormDirtyState();
+  }
+
   private _updateFormDirtyState(): void {
     this._updateDirtyState({
       source: this._source!,
       forecast: this._forecast!,
+      savingsType: this._savingsType,
     });
   }
 
@@ -380,7 +549,22 @@ export class DialogEnergySolarSettings
       if (!this._forecast) {
         this._source!.config_entry_solar_forecast = null;
       }
-      await this._params!.saveCallback(this._source!);
+      const source: SolarSourceTypeEnergyPreference = { ...this._source! };
+      if (this._savingsType === "no_cost") {
+        // Today's core solar schema rejects these keys. Omit them unless
+        // the user actually turned savings tracking on.
+        delete source.stat_cost;
+        delete source.entity_energy_price;
+        delete source.number_energy_price;
+      } else {
+        source.stat_cost = source.stat_cost ?? null;
+        source.entity_energy_price = source.entity_energy_price ?? null;
+        source.number_energy_price =
+          source.number_energy_price === undefined
+            ? null
+            : source.number_energy_price;
+      }
+      await this._params!.saveCallback(source);
       this._markDirtyStateClean();
       this.closeDialog();
     } catch (err: any) {
@@ -393,9 +577,14 @@ export class DialogEnergySolarSettings
       haStyle,
       haStyleDialog,
       css`
-        ha-statistic-picker {
+        ha-statistic-picker,
+        ha-entity-picker {
           display: block;
           margin-bottom: var(--ha-space-4);
+        }
+        ha-input {
+          margin-bottom: var(--ha-space-4);
+          --ha-input-padding-bottom: 0;
         }
         img {
           height: 24px;
@@ -408,6 +597,16 @@ export class DialogEnergySolarSettings
         }
         ha-radio-group {
           margin-bottom: var(--ha-space-3);
+        }
+        .section-label {
+          margin-top: var(--ha-space-4);
+          margin-bottom: var(--ha-space-2);
+        }
+        .section-description {
+          margin-top: 0;
+          margin-bottom: var(--ha-space-2);
+          color: var(--secondary-text-color);
+          font-size: 0.875em;
         }
         .forecast-options {
           display: flex;

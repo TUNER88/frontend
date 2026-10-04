@@ -4444,7 +4444,16 @@
               "solar_production_forecast_description": "Adding solar production forecast information will allow you to quickly see your expected production for today.",
               "dont_forecast_production": "Don't forecast production",
               "forecast_production": "Forecast production",
-              "add_forecast": "Add forecast"
+              "add_forecast": "Add forecast",
+              "savings": "Savings",
+              "savings_para": "The price applies only to solar energy used by the home, not energy exported to the grid. Export compensation stays on the grid connection.",
+              "no_savings_tracking": "Do not track savings",
+              "savings_stat": "Use an entity tracking the total savings",
+              "savings_stat_label": "Entity with the total savings",
+              "savings_entity": "Use an entity with the current price",
+              "savings_entity_label": "Entity with the current price",
+              "savings_number": "Use a static price",
+              "savings_number_label": "Price"
             }
           },
           "battery": {

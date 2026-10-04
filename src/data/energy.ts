@@ -81,6 +81,9 @@ export const emptySolarEnergyPreference =
     type: "solar",
     stat_energy_from: "",
     config_entry_solar_forecast: null,
+    stat_cost: null,
+    entity_energy_price: null,
+    number_energy_price: null,
   });
 
 export const emptyBatteryEnergyPreference =
@@ -165,6 +168,14 @@ export interface SolarSourceTypeEnergyPreference {
   stat_energy_from: string;
   stat_rate?: string;
   config_entry_solar_forecast: string[] | null;
+
+  // Savings for solar the home used itself. Not a price on total production
+  // (stat_energy_from includes export) and not export compensation.
+  // Only one of these is set. Null or omitted means no tracking.
+  stat_cost?: string | null;
+  entity_energy_price?: string | null;
+  number_energy_price?: number | null;
+
   name?: string;
 }
 
@@ -392,6 +403,16 @@ export const getReferencedStatisticIds = (
 
     if (source.type === "solar") {
       statIDs.push(source.stat_energy_from);
+
+      // Savings statistic. The priced quantity is self-consumed solar,
+      // not total production and not energy exported to the grid.
+      if (source.stat_cost) {
+        statIDs.push(source.stat_cost);
+      }
+      const savingsStatId = info.cost_sensors[source.stat_energy_from];
+      if (savingsStatId) {
+        statIDs.push(savingsStatId);
+      }
       continue;
     }
 
