@@ -6,8 +6,13 @@ import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
+import type {
+  CallbackDataParams,
+  TopLevelFormatterParams,
+} from "echarts/types/dist/shared";
 import { formatNumber } from "../../../../common/number/format_number";
 import "../../../../components/chart/ha-chart-base";
+import "../../../../components/chart/ha-chart-tooltip-marker";
 import "../../../../components/ha-card";
 import type {
   EnergyData,
@@ -69,6 +74,10 @@ export class HuiEnergySolarGraphCard
 
   @state() private _total?: number;
 
+  @state() private _totalSavings: number | null = null;
+
+  @state() private _hasSavingsSeries = false;
+
   protected hassSubscribeRequiredHostProps = ["_config"];
 
   public hassSubscribe(): UnsubscribeFunc[] {
@@ -109,15 +118,31 @@ export class HuiEnergySolarGraphCard
           this._config.title
             ? html` <div class="card-header">
                 <span>${this._config.title}</span>
-                ${
-                  this._total
-                    ? html`<hui-energy-graph-chip
-                        .tooltip=${this._formatTotal(this._total)}
-                      >
-                        ${formatNumber(this._total, this.hass.locale)} kWh
-                      </hui-energy-graph-chip>`
-                    : nothing
-                }
+                <div class="chips">
+                  ${
+                    this._total
+                      ? html`<hui-energy-graph-chip
+                          .tooltip=${this._formatTotal(this._total)}
+                        >
+                          ${formatNumber(this._total, this.hass.locale)} kWh
+                        </hui-energy-graph-chip>`
+                      : nothing
+                  }
+                  ${
+                    this._totalSavings !== null
+                      ? html`<hui-energy-graph-chip
+                          .tooltip=${this._formatTotalSavings(
+                            this._totalSavings
+                          )}
+                        >
+                          ${formatNumber(this._totalSavings, this.hass.locale, {
+                            style: "currency",
+                            currency: this.hass.config.currency!,
+                          })}
+                        </hui-energy-graph-chip>`
+                      : nothing
+                  }
+                </div>
               </div>`
             : nothing
         }
@@ -136,7 +161,8 @@ export class HuiEnergySolarGraphCard
               this.hass.config,
               this._compareStart,
               this._compareEnd,
-              this._yAxisFractionDigits
+              this._yAxisFractionDigits,
+              this._hasSavingsSeries
             )}
             chart-type="bar"
           ></ha-chart-base>
@@ -166,6 +192,17 @@ export class HuiEnergySolarGraphCard
       { num: formatNumber(total, this.hass.locale) }
     );
 
+  private _formatTotalSavings = (total: number) =>
+    this.hass.localize(
+      "ui.panel.lovelace.cards.energy.energy_solar_graph.total_saved",
+      {
+        num: formatNumber(total, this.hass.locale, {
+          style: "currency",
+          currency: this.hass.config.currency!,
+        }),
+      }
+    );
+
   private _createOptions = memoizeOne(
     (
       start: Date,
@@ -174,9 +211,10 @@ export class HuiEnergySolarGraphCard
       config: HassConfig,
       compareStart: Date | undefined,
       compareEnd: Date | undefined,
-      yAxisFractionDigits: number
-    ): HaECOption =>
-      getCommonOptions(
+      yAxisFractionDigits: number,
+      hasSavingsSeries: boolean
+    ): HaECOption => {
+      const options = getCommonOptions(
         start,
         end,
         locale,
@@ -187,7 +225,109 @@ export class HuiEnergySolarGraphCard
         this._formatTotal,
         false,
         yAxisFractionDigits
-      )
+      );
+
+      if (!hasSavingsSeries) {
+        return options;
+      }
+
+      const currency = config.currency!;
+      const energyAxis = Array.isArray(options.yAxis)
+        ? options.yAxis[0]
+        : options.yAxis;
+
+      options.yAxis = [
+        energyAxis,
+        {
+          type: "value",
+          name: currency,
+          nameGap: 2,
+          nameTextStyle: {
+            align: "right",
+          },
+          position: "right",
+          alignTicks: true,
+          splitLine: {
+            show: false,
+          },
+          axisLabel: {
+            formatter: (value: number) =>
+              formatNumber(value, locale, {
+                style: "currency",
+                currency,
+                maximumFractionDigits: value === 0 ? 0 : 2,
+              }),
+          },
+        },
+      ];
+
+      // Mixed kWh + currency series: format savings lines as currency.
+      const baseFormatter = options.tooltip?.formatter;
+      options.tooltip = {
+        ...options.tooltip,
+        formatter: (params: TopLevelFormatterParams) => {
+          if (!Array.isArray(params)) {
+            return typeof baseFormatter === "function"
+              ? (baseFormatter as any)(params)
+              : nothing;
+          }
+          const energyParams: CallbackDataParams[] = [];
+          const savingsParams: CallbackDataParams[] = [];
+          for (const param of params) {
+            const id = String(param.seriesId || "");
+            if (
+              id.startsWith("savings-") ||
+              id.startsWith("compare-savings-")
+            ) {
+              savingsParams.push(param);
+            } else {
+              energyParams.push(param);
+            }
+          }
+
+          const energyTip =
+            typeof baseFormatter === "function"
+              ? (baseFormatter as any)(energyParams)
+              : nothing;
+
+          const savingsRows = savingsParams
+            .map((param) => {
+              const y = param.value?.[1] as number;
+              if (y == null || y === 0) {
+                return nothing;
+              }
+              return html`<ha-chart-tooltip-marker
+                  .color=${String(param.color ?? "")}
+                ></ha-chart-tooltip-marker>
+                ${param.seriesName}:
+                <div style="direction:ltr; display: inline;">
+                  ${formatNumber(y, locale, {
+                    style: "currency",
+                    currency,
+                  })}
+                </div>`;
+            })
+            .filter((row) => row !== nothing);
+
+          if (energyTip === nothing && savingsRows.length === 0) {
+            return nothing;
+          }
+          if (savingsRows.length === 0) {
+            return energyTip;
+          }
+          if (energyTip === nothing) {
+            return html`${savingsRows.map(
+              (row, i) => html`${i > 0 ? html`<br />` : nothing}${row}`
+            )}`;
+          }
+          return html`${energyTip}<br />${savingsRows.map(
+              (row, i) => html`${i > 0 ? html`<br />` : nothing}${row}`
+            )}`;
+        },
+      };
+
+      return options;
+    }
   );
 
   private async _getStatistics(energyData: EnergyData): Promise<void> {
@@ -222,6 +362,8 @@ export class HuiEnergySolarGraphCard
     this._yAxisFractionDigits = result.yAxisFractionDigits;
     this._chartData = result.chartData;
     this._total = result.total;
+    this._totalSavings = result.totalSavings;
+    this._hasSavingsSeries = result.hasSavingsSeries;
   }
 
   static styles = css`
@@ -233,6 +375,11 @@ export class HuiEnergySolarGraphCard
       justify-content: space-between;
       align-items: center;
       padding-bottom: 0;
+    }
+    .chips {
+      display: flex;
+      gap: 8px;
+      align-items: center;
     }
     .content {
       padding: 16px;

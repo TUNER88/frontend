@@ -354,14 +354,17 @@ export class HuiEnergySourcesTableCard
     const totalCosts = {
       gas: 0,
       water: 0,
+      solar: 0,
     };
     const totalCostsCompare = {
       gas: 0,
       water: 0,
+      solar: 0,
     };
     const hasCosts = {
       gas: false,
       water: false,
+      solar: false,
     };
 
     const allTypes = energySourcesByType(this._data.prefs);
@@ -394,6 +397,10 @@ export class HuiEnergySourcesTableCard
           flow.stat_cost || flow.entity_energy_price || flow.number_energy_price
       ) ||
       types.water?.some(
+        (flow) =>
+          flow.stat_cost || flow.entity_energy_price || flow.number_energy_price
+      ) ||
+      types.solar?.some(
         (flow) =>
           flow.stat_cost || flow.entity_energy_price || flow.number_energy_price
       )

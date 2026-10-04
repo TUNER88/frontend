@@ -9614,7 +9614,9 @@
             "energy_solar_graph": {
               "production": "Production {name}",
               "forecast": "Forecast {name}",
-              "total_produced": "Total produced {num} kWh"
+              "savings": "Savings {name}",
+              "total_produced": "Total produced {num} kWh",
+              "total_saved": "Total saved {num}"
             },
             "energy_gas_graph": {
               "total_consumed": "Total {num} {unit}"

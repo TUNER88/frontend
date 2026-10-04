@@ -34,6 +34,10 @@ export interface EnergySolarGraphDataParams {
 export interface EnergySolarGraphData {
   chartData: (BarSeriesOption | LineSeriesOption)[];
   total: number;
+  /** Period total of solar savings when any source tracks savings; otherwise null. */
+  totalSavings: number | null;
+  /** True when at least one savings series was added (enables currency y-axis). */
+  hasSavingsSeries: boolean;
   start: Date;
   end: Date;
   compareStart?: Date;
@@ -124,6 +128,36 @@ export function generateEnergySolarGraphData(
     generateFillBuckets(datasets as BarSeriesOption[], start, end, period)
   );
 
+  const savingsCompare = energyData.statsCompare
+    ? processSavingsDataSet(
+        hass,
+        compareTransform,
+        period,
+        energyData.statsCompare,
+        energyData.statsMetadata,
+        energyData.info.cost_sensors,
+        solarSources,
+        computedStyles,
+        true
+      )
+    : [];
+  const savingsMain = processSavingsDataSet(
+    hass,
+    compareTransform,
+    period,
+    energyData.stats,
+    energyData.statsMetadata,
+    energyData.info.cost_sensors,
+    solarSources,
+    computedStyles,
+    false
+  );
+  // Compare savings first so legend/tooltip order matches production series.
+  if (savingsCompare.length) {
+    datasets.push(...savingsCompare);
+  }
+  datasets.push(...savingsMain);
+
   if (forecasts) {
     datasets.push(
       ...processForecast(
@@ -139,9 +173,17 @@ export function generateEnergySolarGraphData(
     );
   }
 
+  const totalSavings = processSavingsTotal(
+    energyData.stats,
+    energyData.info.cost_sensors,
+    solarSources
+  );
+
   return {
     chartData: datasets,
     total: processTotal(energyData.stats, solarSources),
+    totalSavings,
+    hasSavingsSeries: savingsMain.length > 0 || savingsCompare.length > 0,
     start,
     end,
     compareStart,
@@ -269,6 +311,140 @@ function processDataSet(
       ),
       data: solarProductionData,
       stack: compare ? "compare" : "solar",
+    });
+  });
+
+  return data;
+}
+
+function resolveSavingsStatId(
+  source: SolarSourceTypeEnergyPreference,
+  costSensors: Record<string, string>
+): string | undefined {
+  return source.stat_cost || costSensors[source.stat_energy_from] || undefined;
+}
+
+function processSavingsTotal(
+  statistics: Statistics,
+  costSensors: Record<string, string>,
+  solarSources: SolarSourceTypeEnergyPreference[]
+): number | null {
+  let any = false;
+  let sum = 0;
+  for (const source of solarSources) {
+    const costStatId = resolveSavingsStatId(source, costSensors);
+    if (!costStatId || !(costStatId in statistics)) {
+      continue;
+    }
+    any = true;
+    sum += statistics[costStatId].reduce(
+      (acc, curr) => acc + (curr.change || 0),
+      0
+    );
+  }
+  return any ? sum : null;
+}
+
+function processSavingsDataSet(
+  hass: HomeAssistant,
+  compareTransform: (ts: Date) => Date,
+  period: "5minute" | "hour" | "day" | "month",
+  statistics: Statistics,
+  statisticsMetaData: Record<string, StatisticsMetaData>,
+  costSensors: Record<string, string>,
+  solarSources: SolarSourceTypeEnergyPreference[],
+  computedStyles: CSSStyleDeclaration,
+  compare = false
+) {
+  const data: LineSeriesOption[] = [];
+  const midpointTransform = compare ? compareTransform : undefined;
+  const center = period === "hour" || period === "5minute";
+  const darkMode = hass.themes.darkMode;
+
+  solarSources.forEach((source, idx) => {
+    const costStatId = resolveSavingsStatId(source, costSensors);
+    if (!costStatId || !(costStatId in statistics)) {
+      return;
+    }
+
+    let prevStart: number | null = null;
+    const savingsData: LineSeriesOption["data"] = [];
+    const stats = statistics[costStatId];
+
+    for (const point of stats) {
+      const change = point.change;
+      if (change == null || change === 0) {
+        continue;
+      }
+      const pointStart = point.start;
+      if (prevStart === pointStart) {
+        continue;
+      }
+      let midpoint: number;
+      if (!center) {
+        midpoint = midpointTransform
+          ? midpointTransform(new Date(pointStart)).getTime()
+          : pointStart;
+      } else if (midpointTransform) {
+        midpoint =
+          (midpointTransform(new Date(pointStart)).getTime() +
+            midpointTransform(new Date(point.end)).getTime()) /
+          2;
+      } else {
+        midpoint = (pointStart + point.end) / 2;
+      }
+      const dataPoint: EnergyDataPoint = [midpoint, change, pointStart];
+      savingsData.push(dataPoint);
+      prevStart = pointStart;
+    }
+
+    if (!savingsData.length) {
+      return;
+    }
+
+    const sourceName =
+      source.name ||
+      getStatisticLabel(
+        hass,
+        source.stat_energy_from,
+        statisticsMetaData[source.stat_energy_from]
+      );
+
+    data.push({
+      type: "line",
+      cursor: "default",
+      id: compare ? "compare-savings-" + costStatId : "savings-" + costStatId,
+      name: hass.localize(
+        "ui.panel.lovelace.cards.energy.energy_solar_graph.savings",
+        { name: sourceName }
+      ),
+      // Secondary axis: currency, kept off the kWh production scale.
+      yAxisIndex: 1,
+      step: "middle",
+      showSymbol: false,
+      lineStyle: {
+        width: 2,
+        type: compare ? [4, 4] : "solid",
+      },
+      itemStyle: {
+        color: getEnergyColor(
+          computedStyles,
+          darkMode,
+          false,
+          compare,
+          "--energy-solar-color",
+          idx
+        ),
+      },
+      color: getEnergyColor(
+        computedStyles,
+        darkMode,
+        true,
+        compare,
+        "--energy-solar-color",
+        idx
+      ),
+      data: savingsData,
     });
   });
 

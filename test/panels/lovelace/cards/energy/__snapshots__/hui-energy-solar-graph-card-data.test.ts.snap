@@ -7,8 +7,10 @@ exports[`generateEnergySolarGraphData > large 5-minute payload digest is stable 
     "compareEnd",
     "compareStart",
     "end",
+    "hasSavingsSeries",
     "start",
     "total",
+    "totalSavings",
     "yAxisFractionDigits",
   ],
   "numberCount": 285622,
@@ -771,8 +773,10 @@ exports[`generateEnergySolarGraphData > matches snapshot for a single solar sour
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-03T00:00:00.000Z,
+  "hasSavingsSeries": false,
   "start": 2024-01-01T00:00:00.000Z,
   "total": 51.848000000000006,
+  "totalSavings": null,
   "yAxisFractionDigits": 1,
 }
 `;
@@ -1399,8 +1403,10 @@ exports[`generateEnergySolarGraphData > matches snapshot for the daily period 1`
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-02-10T00:00:00.000Z,
+  "hasSavingsSeries": false,
   "start": 2024-01-01T00:00:00.000Z,
   "total": 41.27299999999999,
+  "totalSavings": null,
   "yAxisFractionDigits": 1,
 }
 `;
@@ -5128,8 +5134,10 @@ exports[`generateEnergySolarGraphData > matches snapshot for two solar sources w
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-03T00:00:00.000Z,
+  "hasSavingsSeries": false,
   "start": 2024-01-01T00:00:00.000Z,
   "total": 97.71099999999998,
+  "totalSavings": null,
   "yAxisFractionDigits": 1,
 }
 `;
@@ -6359,8 +6367,10 @@ exports[`generateEnergySolarGraphData > matches snapshot with daily-period forec
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-02-10T00:00:00.000Z,
+  "hasSavingsSeries": false,
   "start": 2024-01-01T00:00:00.000Z,
   "total": 74.043,
+  "totalSavings": null,
   "yAxisFractionDigits": 0,
 }
 `;
@@ -7323,8 +7333,10 @@ exports[`generateEnergySolarGraphData > matches snapshot with hourly forecast da
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-03T00:00:00.000Z,
+  "hasSavingsSeries": false,
   "start": 2024-01-01T00:00:00.000Z,
   "total": 45.402,
+  "totalSavings": null,
   "yAxisFractionDigits": 0,
 }
 `;
@@ -7335,8 +7347,10 @@ exports[`generateEnergySolarGraphData > returns a placeholder dataset and zero t
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-02T00:00:00.000Z,
+  "hasSavingsSeries": false,
   "start": 2024-01-01T00:00:00.000Z,
   "total": 0,
+  "totalSavings": null,
   "yAxisFractionDigits": 1,
 }
 `;

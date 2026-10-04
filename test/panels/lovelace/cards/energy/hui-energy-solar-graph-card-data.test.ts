@@ -262,4 +262,65 @@ describe("generateEnergySolarGraphData", () => {
       );
     }
   });
+
+  it("plots solar savings on a currency series when cost_sensors are present", () => {
+    const prefs = solarPrefs({ sources: 1 });
+    const energyData = generateEnergyData(11, {
+      days: 1,
+      period: "hour",
+      prefs,
+    });
+    const productionId = "sensor.solar_production";
+    const savingsId = "sensor.solar_production_cost";
+    energyData.info = {
+      cost_sensors: { [productionId]: savingsId },
+      solar_forecast_domains: [],
+    };
+    // Mirror production buckets as savings so the series is non-empty.
+    energyData.stats[savingsId] = (energyData.stats[productionId] || []).map(
+      (point) => ({
+        ...point,
+        change: point.change == null ? null : Number(point.change) * 0.25,
+      })
+    );
+
+    const result = generateEnergySolarGraphData({
+      hass,
+      energyData,
+      forecasts: undefined,
+      computedStyles,
+      now,
+    });
+
+    expect(result.hasSavingsSeries).toBe(true);
+    expect(result.totalSavings).not.toBeNull();
+    expect(result.totalSavings!).toBeGreaterThan(0);
+
+    const savingsSeries = result.chartData.find(
+      (d) => d.id === `savings-${savingsId}`
+    );
+    expect(savingsSeries).toBeDefined();
+    expect(savingsSeries!.type).toBe("line");
+    expect((savingsSeries as any).yAxisIndex).toBe(1);
+  });
+
+  it("leaves savings null when no savings statistic is configured", () => {
+    const energyData = generateEnergyData(12, {
+      days: 1,
+      period: "hour",
+      prefs: solarPrefs({ sources: 1 }),
+    });
+    const result = generateEnergySolarGraphData({
+      hass,
+      energyData,
+      forecasts: undefined,
+      computedStyles,
+      now,
+    });
+    expect(result.totalSavings).toBeNull();
+    expect(result.hasSavingsSeries).toBe(false);
+    expect(
+      result.chartData.some((d) => String(d.id).includes("savings-"))
+    ).toBe(false);
+  });
 });
